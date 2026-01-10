@@ -28,26 +28,22 @@ bun run index.ts <input> [options]
 ### Basic Examples
 
 ```bash
-# Convert input image (output: input_transparent.png)
+# Convert input image (output: output/input.png)
 bun run index.ts ./input.png
 
 # Specify output path
 bun run index.ts ./input.png -o ./output.png
-
-# Show verbose logs
-bun run index.ts ./input.png -v
 ```
 
 ### Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-o, --output` | Output image path | `<input>_transparent.png` |
+| `-o, --output` | Output image path | `output/<input>.png` |
 | `-t, --tolerance` | Background color tolerance (0-255) | `30` |
 | `-c, --color` | Manually specify background color (hex format) | Auto-detect |
-| `-r, --reference` | Reference image for size/position | `ema.png` |
+| `-r, --reference` | Reference image for size/position | `ref.png` |
 | `--no-resize` | Skip resizing to reference | `false` |
-| `-v, --verbose` | Enable verbose logging | `false` |
 | `-h, --help` | Show help | - |
 
 ### Manual Background Color Examples

@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import type { CliOptions, RGB, ImageInfo, BoundingBox } from "./types";
-import { detectBackgroundColor, rgbToHex } from "./background-detector";
+import { detectBackgroundColor } from "./background-detector";
 import { makeTransparent } from "./transparent";
 import { findBoundingBox } from "./bounding-box";
 
@@ -46,13 +46,7 @@ async function getReferenceInfo(referencePath: string): Promise<ReferenceInfo> {
  * @param options - CLI options including input/output paths and processing settings
  */
 export async function processImage(options: CliOptions): Promise<void> {
-  const { input, output, tolerance, color, reference, noResize, verbose } = options;
-
-  const log = (msg: string) => {
-    if (verbose) console.log(msg);
-  };
-
-  log(`Processing: ${input}`);
+  const { input, output, tolerance, color, reference, noResize } = options;
 
   // Check if input exists
   const inputFile = Bun.file(input);
@@ -68,8 +62,6 @@ export async function processImage(options: CliOptions): Promise<void> {
       throw new Error(`Reference file not found: ${reference}`);
     }
     refInfo = await getReferenceInfo(reference);
-    log(`Reference image: ${refInfo.width}x${refInfo.height}`);
-    log(`Reference ema bounds: x=${refInfo.emaBounds.x}, y=${refInfo.emaBounds.y}, w=${refInfo.emaBounds.width}, h=${refInfo.emaBounds.height}`);
   }
 
   // Load image and get raw data
@@ -85,18 +77,14 @@ export async function processImage(options: CliOptions): Promise<void> {
     channels: info.channels,
   };
 
-  log(`Input size: ${info.width}x${info.height}`);
-
   // Detect or use provided background color
   const bgColor: RGB = color ?? detectBackgroundColor(data, imageInfo);
-  log(`Background color: ${rgbToHex(bgColor)}`);
 
   // Make background transparent
   const transparentData = makeTransparent(data, imageInfo, bgColor, tolerance);
 
-  // Find bounding box of the ema in input image
-  const inputEmaBounds = findBoundingBox(transparentData, info.width, info.height);
-  log(`Input ema bounds: x=${inputEmaBounds.x}, y=${inputEmaBounds.y}, w=${inputEmaBounds.width}, h=${inputEmaBounds.height}`);
+  // Find bounding box of the content in input image
+  const inputBounds = findBoundingBox(transparentData, info.width, info.height);
 
   // Create transparent image
   let outputImage = sharp(transparentData, {
@@ -108,12 +96,11 @@ export async function processImage(options: CliOptions): Promise<void> {
   });
 
   if (refInfo) {
-    // Calculate scale to match ema sizes
-    const scaleX = refInfo.emaBounds.width / inputEmaBounds.width;
-    const scaleY = refInfo.emaBounds.height / inputEmaBounds.height;
-    // Use the smaller scale to ensure ema fits
+    // Calculate scale to match content sizes
+    const scaleX = refInfo.emaBounds.width / inputBounds.width;
+    const scaleY = refInfo.emaBounds.height / inputBounds.height;
+    // Use the smaller scale to ensure content fits
     const scale = Math.min(scaleX, scaleY);
-    log(`Scale factor: ${scale.toFixed(3)}`);
 
     // Calculate new dimensions after scaling
     const scaledWidth = Math.round(info.width * scale);
@@ -125,14 +112,13 @@ export async function processImage(options: CliOptions): Promise<void> {
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    // Calculate where the ema would be after scaling
-    const scaledEmaX = Math.round(inputEmaBounds.x * scale);
-    const scaledEmaY = Math.round(inputEmaBounds.y * scale);
+    // Calculate where the content would be after scaling
+    const scaledBoundsX = Math.round(inputBounds.x * scale);
+    const scaledBoundsY = Math.round(inputBounds.y * scale);
 
-    // Calculate offset to align ema positions
-    const offsetX = refInfo.emaBounds.x - scaledEmaX;
-    const offsetY = refInfo.emaBounds.y - scaledEmaY;
-    log(`Offset: x=${offsetX}, y=${offsetY}`);
+    // Calculate offset to align content positions
+    const offsetX = refInfo.emaBounds.x - scaledBoundsX;
+    const offsetY = refInfo.emaBounds.y - scaledBoundsY;
 
     // Calculate the region of scaled image that fits in the reference canvas
     const clipLeft = Math.max(0, -offsetX);
@@ -163,7 +149,6 @@ export async function processImage(options: CliOptions): Promise<void> {
     // Calculate position on final canvas
     const finalLeft = Math.max(0, offsetX);
     const finalTop = Math.max(0, offsetY);
-    log(`Final position: left=${finalLeft}, top=${finalTop}`);
 
     // Create final canvas with reference dimensions
     const finalImage = sharp({
@@ -182,7 +167,6 @@ export async function processImage(options: CliOptions): Promise<void> {
     ]);
 
     await finalImage.png().toFile(output);
-    log(`Output size: ${refInfo.width}x${refInfo.height}`);
   } else {
     // No resize, just save transparent image
     await outputImage.png().toFile(output);

@@ -15,7 +15,6 @@ export interface CliOptions {
   color: RGB | null;
   reference: string;
   noResize: boolean;
-  verbose: boolean;
 }
 
 export interface ImageInfo {

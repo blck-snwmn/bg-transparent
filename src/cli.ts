@@ -23,13 +23,12 @@ function parseHexColor(hex: string): RGB {
 /**
  * Generate output file path from input path
  * @param inputPath - Input image file path
- * @returns Output path with "_transparent.png" suffix
+ * @returns Output path in output directory with .png extension
  */
 function generateOutputPath(inputPath: string): string {
-  const dir = dirname(inputPath);
   const ext = extname(inputPath);
   const name = basename(inputPath, ext);
-  return resolve(dir, `${name}_transparent.png`);
+  return resolve("output", `${name}.png`);
 }
 
 function showHelp(): void {
@@ -40,18 +39,17 @@ Arguments:
   <input>              Input image path (required)
 
 Options:
-  -o, --output         Output image path (default: <input>_transparent.png)
+  -o, --output         Output image path (default: output/<input>.png)
   -t, --tolerance      Background color tolerance 0-255 (default: 30)
   -c, --color          Background color in hex format (default: auto-detect)
-  -r, --reference      Reference image for size (default: ema.png)
+  -r, --reference      Reference image for size (default: ref.png)
   --no-resize          Skip resizing to reference size
-  -v, --verbose        Enable verbose logging
   -h, --help           Show this help message
 
 Examples:
   bun run index.ts ./input.png
   bun run index.ts ./input.png -o ./output.png -t 50
-  bun run index.ts ./input.png -c "#FFFFFF" -v
+  bun run index.ts ./input.png -c "#FFFFFF"
 `);
 }
 
@@ -66,9 +64,8 @@ export function parseCliArgs(): CliOptions | null {
       output: { type: "string", short: "o" },
       tolerance: { type: "string", short: "t", default: "30" },
       color: { type: "string", short: "c" },
-      reference: { type: "string", short: "r", default: "ema.png" },
+      reference: { type: "string", short: "r", default: "ref.png" },
       "no-resize": { type: "boolean", default: false },
-      verbose: { type: "boolean", short: "v", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
     allowPositionals: true,
@@ -76,7 +73,7 @@ export function parseCliArgs(): CliOptions | null {
 
   if (values.help) {
     showHelp();
-    return null;
+    process.exit(0);
   }
 
   if (positionals.length === 0) {
@@ -110,6 +107,5 @@ export function parseCliArgs(): CliOptions | null {
     color,
     reference: resolve(values.reference as string),
     noResize: values["no-resize"] as boolean,
-    verbose: values.verbose as boolean,
   };
 }
