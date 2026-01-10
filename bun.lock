@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "ema-transparent",
+      "name": "bg-transparent",
       "dependencies": {
         "sharp": "^0.34.5",
       },
