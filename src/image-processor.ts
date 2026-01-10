@@ -1,75 +1,32 @@
 import sharp from "sharp";
-import type { CliOptions, RGB, ImageInfo, BoundingBox } from "./types";
+import type {
+  CliOptions,
+  RGB,
+  ImageInfo,
+  ReferenceInfo,
+  ProcessOptions,
+  ImageInput,
+  ProcessResult,
+} from "./types";
 import { detectBackgroundColor } from "./background-detector";
 import { makeTransparent } from "./transparent";
 import { findBoundingBox } from "./bounding-box";
 
-/** Reference image metadata including content bounding box */
-interface ReferenceInfo {
-  width: number;
-  height: number;
-  emaBounds: BoundingBox;
-}
-
 /**
- * Get reference image info including dimensions and content bounding box
- * @param referencePath - Path to reference image
- * @returns Reference image metadata
- */
-async function getReferenceInfo(referencePath: string): Promise<ReferenceInfo> {
-  const { data, info } = await sharp(referencePath)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  if (!info.width || !info.height) {
-    throw new Error(`Could not read reference image dimensions: ${referencePath}`);
-  }
-
-  const emaBounds = findBoundingBox(data, info.width, info.height);
-
-  return {
-    width: info.width,
-    height: info.height,
-    emaBounds,
-  };
-}
-
-/**
- * Process an image: make background transparent and align to reference image
+ * Process image data: make background transparent and optionally align to reference
  *
- * 1. Load input image and detect/use background color
- * 2. Make background transparent
- * 3. If resize enabled: scale and position to match reference image's content
- * 4. Save as PNG with transparency
+ * Pure data processing function without file I/O.
  *
- * @param options - CLI options including input/output paths and processing settings
+ * @param input - Input image data and metadata
+ * @param options - Processing options (tolerance, color, refInfo)
+ * @returns Processed image as PNG buffer with dimensions
  */
-export async function processImage(options: CliOptions): Promise<void> {
-  const { input, output, tolerance, color, reference, noResize } = options;
-
-  // Check if input exists
-  const inputFile = Bun.file(input);
-  if (!(await inputFile.exists())) {
-    throw new Error(`Input file not found: ${input}`);
-  }
-
-  // Get reference info if needed
-  let refInfo: ReferenceInfo | null = null;
-  if (!noResize) {
-    const refFile = Bun.file(reference);
-    if (!(await refFile.exists())) {
-      throw new Error(`Reference file not found: ${reference}`);
-    }
-    refInfo = await getReferenceInfo(reference);
-  }
-
-  // Load image and get raw data
-  const image = sharp(input);
-  const { data, info } = await image
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+export async function processImageData(
+  input: ImageInput,
+  options: ProcessOptions
+): Promise<ProcessResult> {
+  const { data, info } = input;
+  const { tolerance, color, refInfo } = options;
 
   const imageInfo: ImageInfo = {
     width: info.width,
@@ -97,8 +54,8 @@ export async function processImage(options: CliOptions): Promise<void> {
 
   if (refInfo) {
     // Calculate scale to match content sizes
-    const scaleX = refInfo.emaBounds.width / inputBounds.width;
-    const scaleY = refInfo.emaBounds.height / inputBounds.height;
+    const scaleX = refInfo.contentBounds.width / inputBounds.width;
+    const scaleY = refInfo.contentBounds.height / inputBounds.height;
     // Use the smaller scale to ensure content fits
     const scale = Math.min(scaleX, scaleY);
 
@@ -117,14 +74,17 @@ export async function processImage(options: CliOptions): Promise<void> {
     const scaledBoundsY = Math.round(inputBounds.y * scale);
 
     // Calculate offset to align content positions
-    const offsetX = refInfo.emaBounds.x - scaledBoundsX;
-    const offsetY = refInfo.emaBounds.y - scaledBoundsY;
+    const offsetX = refInfo.contentBounds.x - scaledBoundsX;
+    const offsetY = refInfo.contentBounds.y - scaledBoundsY;
 
     // Calculate the region of scaled image that fits in the reference canvas
     const clipLeft = Math.max(0, -offsetX);
     const clipTop = Math.max(0, -offsetY);
     const clipRight = Math.min(scaledImage.info.width, refInfo.width - offsetX);
-    const clipBottom = Math.min(scaledImage.info.height, refInfo.height - offsetY);
+    const clipBottom = Math.min(
+      scaledImage.info.height,
+      refInfo.height - offsetY
+    );
 
     const clipWidth = clipRight - clipLeft;
     const clipHeight = clipBottom - clipTop;
@@ -151,26 +111,112 @@ export async function processImage(options: CliOptions): Promise<void> {
     const finalTop = Math.max(0, offsetY);
 
     // Create final canvas with reference dimensions
-    const finalImage = sharp({
+    const resultBuffer = await sharp({
       create: {
         width: refInfo.width,
         height: refInfo.height,
         channels: 4,
         background: { r: 0, g: 0, b: 0, alpha: 0 },
       },
-    }).composite([
-      {
-        input: clippedImage,
-        left: finalLeft,
-        top: finalTop,
-      },
-    ]);
+    })
+      .composite([
+        {
+          input: clippedImage,
+          left: finalLeft,
+          top: finalTop,
+        },
+      ])
+      .png()
+      .toBuffer();
 
-    await finalImage.png().toFile(output);
+    return {
+      data: resultBuffer,
+      width: refInfo.width,
+      height: refInfo.height,
+    };
   } else {
-    // No resize, just save transparent image
-    await outputImage.png().toFile(output);
+    // No resize, just return transparent image as PNG
+    const resultBuffer = await outputImage.png().toBuffer();
+    return {
+      data: resultBuffer,
+      width: info.width,
+      height: info.height,
+    };
   }
+}
+
+/**
+ * Process an image file: make background transparent and align to reference image
+ *
+ * File I/O wrapper around processImageData.
+ *
+ * @param options - CLI options including input/output paths and processing settings
+ */
+export async function processImage(options: CliOptions): Promise<void> {
+  const { input, output, tolerance, color, reference, noResize } = options;
+
+  // Check if input exists
+  const inputFile = Bun.file(input);
+  if (!(await inputFile.exists())) {
+    throw new Error(`Input file not found: ${input}`);
+  }
+
+  // Get reference info if needed
+  let refInfo: ReferenceInfo | null = null;
+  if (!noResize) {
+    const refFile = Bun.file(reference);
+    if (!(await refFile.exists())) {
+      throw new Error(`Reference file not found: ${reference}`);
+    }
+
+    const { data: refData, info: refSharpInfo } = await sharp(reference)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    if (!refSharpInfo.width || !refSharpInfo.height) {
+      throw new Error(`Could not read reference image dimensions: ${reference}`);
+    }
+
+    refInfo = {
+      width: refSharpInfo.width,
+      height: refSharpInfo.height,
+      contentBounds: findBoundingBox(refData, refSharpInfo.width, refSharpInfo.height),
+    };
+  }
+
+  // Load image and get raw data
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const imageInput: ImageInput = {
+    data,
+    info: {
+      width: info.width,
+      height: info.height,
+      channels: info.channels,
+    },
+  };
+
+  // Process image data
+  const result = await processImageData(imageInput, {
+    tolerance,
+    color,
+    refInfo,
+  });
+
+  // Save result to file
+  await sharp(result.data, {
+    raw: {
+      width: result.width,
+      height: result.height,
+      channels: 4,
+    },
+  })
+    .png()
+    .toFile(output);
 
   console.log(`Output saved: ${output}`);
 }

@@ -29,3 +29,26 @@ export interface BoundingBox {
   width: number;
   height: number;
 }
+
+export interface ReferenceInfo {
+  width: number;
+  height: number;
+  contentBounds: BoundingBox;
+}
+
+export interface ProcessOptions {
+  tolerance: number;
+  color: RGB | null;
+  refInfo: ReferenceInfo | null;
+}
+
+export interface ImageInput {
+  data: Buffer;
+  info: ImageInfo;
+}
+
+export interface ProcessResult {
+  data: Buffer;
+  width: number;
+  height: number;
+}
